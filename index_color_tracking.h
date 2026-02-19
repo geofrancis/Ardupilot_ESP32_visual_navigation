@@ -7,7 +7,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
 <head>
-   <title>MAVLink Rover - Constrained Intelligence</title>
+   <title>MAVLink Rover - Intelligence Mode</title>
    <meta charset="utf-8">
    <meta name="viewport" content="width=device-width,initial-scale=1">
    <script async src="https://docs.opencv.org/master/opencv.js" type="text/javascript" onload="initOpenCV()"></script>
@@ -22,7 +22,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       button { padding: 12px; margin: 5px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; width: 45%; font-size: 0.9em; }
       
       #filterToggle { background: #0277bd; color: white; }
-      #lockToggle { background: #4a148c; color: white; }
+      #lockToggle { background: #6a1b9a; color: white; }
       #colorDetect { background: #2e7d32; color: white; width: 92%; margin-bottom: 15px; }
       
       input[type=range] { width: 100%; margin: 15px 0; height: 10px; }
@@ -37,8 +37,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <img id="ShowImage" src="" style="display:none">
 
         <div style="width: 100%; margin-top: 10px;">
-            <button id="colorDetect">BOOTING...</button>
-            <div style="font-size: 0.8em; color: #777;">System Status: <span id="streamStatus">Active</span></div>
+            <button id="colorDetect">WAITING FOR CV...</button>
+            <div style="font-size: 0.8em; color: #777;">System Status: <span id="streamStatus">Booting...</span></div>
         </div>
 
         <canvas id="imageMask"></canvas>
@@ -51,7 +51,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
             <div style="display: flex; justify-content: space-between;">
                 <button id="filterToggle">AUTO-FILTER: ON</button>
-                <button id="lockToggle">LOCK TO ZONE: OFF</button>
+                <button id="lockToggle">LOCK TO PATH: OFF</button>
             </div>
             
             <div class="label-row"><span>Growth Delay:</span><span id="gcVal" class="data-box">500</span>ms</div>
@@ -69,7 +69,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
             <div class="label-row"><span>RGB Range:</span><span id="rangeVal" class="data-box">30</span></div>
             <input type="range" id="rgbr" min="5" max="100" value="30">
 
-            <div class="label-row"><span>Probe Position:</span><span id="pDisplay" class="data-box">200, 250</span></div>
+            <div class="label-row"><span>Probe X/Y:</span><span id="pDisplay" class="data-box">200, 250</span></div>
             <input type="range" id="x_p" min="0" max="400" value="200">
             <input type="range" id="y_p" min="0" max="296" value="250">
         </div>
@@ -100,13 +100,16 @@ let watchdog;
 
 function initOpenCV() {
     statusText.innerHTML = "CV Initialized";
-    colorDetect.innerHTML = "RESET STREAM";
+    colorDetect.innerHTML = "RESET VIDEO STREAM";
     setTimeout(triggerCapture, 500);
 }
 
 function resetWatchdog() {
     clearTimeout(watchdog);
-    watchdog = setTimeout(() => { isBusy = false; triggerCapture(); }, 3000);
+    watchdog = setTimeout(() => {
+        isBusy = false; 
+        triggerCapture();
+    }, 3000);
 }
 
 function triggerCapture() {
@@ -121,9 +124,9 @@ filterToggle.onclick = function() {
 
 lockToggle.onclick = function() {
     b_pathLock = !b_pathLock;
-    this.innerHTML = "LOCK TO ZONE: " + (b_pathLock ? "ON" : "OFF");
+    this.innerHTML = "LOCK TO PATH: " + (b_pathLock ? "ON" : "OFF");
     this.style.background = b_pathLock ? "#4a148c" : "#6a1b9a";
-    document.getElementById("lockStatus").innerHTML = b_pathLock ? "ACTIVE" : "OFF";
+    document.getElementById("lockStatus").innerHTML = b_pathLock ? "LOCKED" : "OFF";
     document.getElementById("lockStatus").style.color = b_pathLock ? "#00e676" : "#ff5252";
 };
 
@@ -156,7 +159,7 @@ async function DetectImage() {
 
   currentSmoothedRGBR = (targetVal * 0.15) + (currentSmoothedRGBR * 0.85);
 
-  // Probe Logic - Clamped to image dimensions
+  // Probe Logic - Clamped to image size
   let pX = Math.max(0, Math.min(parseInt(sliderX.value), src.cols - 1));
   let pY = Math.max(0, Math.min(parseInt(sliderY.value), src.rows - 1));
   let pixel = src.ucharPtr(pY, pX);
@@ -169,9 +172,10 @@ async function DetectImage() {
   let deadzoneY = src.rows * 0.955; 
   let marginW = (src.cols * (1 - boxWidthPct)) / 2;
 
-  // Draw Visual Guides
+  // Visual Guides
   cv.line(src, new cv.Point(0, boxTopY), new cv.Point(src.cols, boxTopY), [150, 150, 150, 255], 1);
   cv.rectangle(src, new cv.Point(marginW, boxTopY), new cv.Point(src.cols - marginW, deadzoneY), [100, 100, 100, 100], 1);
+  // Small indicator for the Probe itself
   cv.circle(src, new cv.Point(pX, pY), 4, [0, 255, 0, 255], -1);
 
   let contours = new cv.MatVector();
@@ -193,14 +197,11 @@ async function DetectImage() {
           let tY = Math.round(M.m01/M.m00);
           
           if(tY < deadzoneY) {
-              // --- CLAMPED PROBE MEMORY ---
+              // --- PROBE MEMORY LOGIC ---
               if(b_pathLock) {
-                  // Constrain probe to the grey box limits
-                  let clampedX = Math.max(marginW, Math.min(tX, src.cols - marginW));
-                  let clampedY = Math.max(boxTopY, Math.min(tY, deadzoneY));
-                  
-                  if(!sliderX.matches(':active')) sliderX.value = Math.round(clampedX);
-                  if(!sliderY.matches(':active')) sliderY.value = Math.round(clampedY);
+                  // If the target is found and valid, move the probe to the target's center
+                  if(!sliderX.matches(':active')) sliderX.value = tX;
+                  if(!sliderY.matches(':active')) sliderY.value = tY;
               }
 
               let rect = cv.boundingRect(cnt);
