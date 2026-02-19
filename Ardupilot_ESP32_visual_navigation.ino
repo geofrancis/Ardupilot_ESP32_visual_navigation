@@ -13,18 +13,26 @@
 
 
 
+
+
 const char* ssid = "2.4";           /* Replace your SSID */
 const char* password = "password"; /* Replace your Password */
 
-int steering = 0;
+int steering = 1500;
+int guidedangle = 0;
 int tracky = 0;
-int remoteProbeX = 200; 
+int remoteProbeX = 200;
 int remoteProbeY = 150;
+int X_Turn = 0;
+int active = 0;
+
 
 
 mavlink_message_t msg;
 uint8_t buf[MAVLINK_MAX_PACKET_LEN];
 uint16_t len;
+
+
 
 
 // Husarnet credentials
@@ -34,23 +42,13 @@ uint16_t len;
 HusarnetClient husarnet;
 
 
-
-/* Defining pin numbers and channels */
-int panServo = 2;
-int tiltServo = 12;
-int panChannel = 2;
-int tiltChannel = 4;
 int x_widthMid = 200;  /* Screen width mid point --> x */
 int y_heightMid = 148; /* Screen height mid point --> y */
-
-int pan_servo_mid = 3250 + ((6500 - 3250) / 2);  /* Mid of pan servo 50 hz PWM, 16-bit resolution and range from 3250 to 6500 */
-int tilt_servo_mid = 3250 + ((6500 - 3250) / 2); /* Mid of tilt servo 50 hz PWM, 16-bit resolution and range from 3250 to 6500 */
 
 String Feedback = "";
 String Command = "", cmd = "", P1 = "", P2 = "", P3 = "", P4 = "", P5 = "", P6 = "", P7 = "", P8 = "", P9 = "";
 byte ReceiveState = 0, cmdState = 1, strState = 1, questionstate = 0, equalstate = 0, semicolonstate = 0;
 
-/* AI-Thinker */
 
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
@@ -73,6 +71,8 @@ byte ReceiveState = 0, cmdState = 1, strState = 1, questionstate = 0, equalstate
 
 
 WiFiServer server(80);
+
+
 
 void ExecuteCommand() {
   if (cmd != "colorDetect") {
@@ -100,15 +100,13 @@ void ExecuteCommand() {
 
     Serial.println("cmd= " + cmd + " ,VALXCM= " + XcmVal);
     Serial.println("cmd= " + cmd + " ,VALYCM= " + YcmVal);
-    if (YcmVal > 200) {
-      pan_tilt_Servo(XcmVal, YcmVal);
-      Serial.println("valid track");
-    }
-    if (YcmVal < 200) {
-      Serial.println("**INVALID track**");
-    }
 
-
+    steering = map(XcmVal, 0, 400, 1000, 2000);/////////////////////////////////////////////////
+    guidedangle = map(XcmVal, 0, 400, -2, 2);////////////////////////////////////////////////////
+    if (active = 1) {
+    Guided();
+    MavLink_RC_out();
+    }
   } else if (cmd == "quality") {
     sensor_t* s = esp_camera_sensor_get();
     int val = P1.toInt();
@@ -128,21 +126,12 @@ void ExecuteCommand() {
     Feedback = Command;
   }
 }
-int active = 0;
-void setup() {
-  //  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
 
-  //ledcSetup(panChannel, 50, 16); /* (channel, freq, resolution) */ /* 50 hz PWM, 16-bit resolution and range from 3250 to 6500 */
-  //ledcAttachPin(panServo, panChannel); /* (pin, channel) */
-  //ledcSetup(tiltChannel, 50, 16); /* (channel, freq, resolution) */ /* 50 hz PWM, 16-bit resolution and range from 3250 to 6500 */
-  // ledcAttachPin(tiltServo, tiltChannel); /* (pin, channel) */
+void setup() {
 
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
-
-  // ledcWrite(panChannel, 3250 + ((6500 - 3250) / 2)); /* Setting pan servo to mid point */
-  // ledcWrite(tiltChannel, 3250 + ((6500 - 3250) / 2)); /* Setting tilt servo to mid point */
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -226,19 +215,18 @@ void setup() {
     Serial.print("ESP IP Address: http://");
     Serial.println(WiFi.localIP());
   }
+
+
   server.begin();
-
   // Join the Husarnet network
-//  husarnet.join(HOSTNAME, JOIN_CODE);
-
- // while (!husarnet.isJoined()) {
-//    Serial.println("Waiting for Husarnet network...");
-//    delay(1000);
-//  }
-//  Serial.println("Husarnet network joined");
-
-//  Serial.print("Husarnet IP: ");
-//  Serial.println(husarnet.getIpAddress().c_str());
+  husarnet.join(HOSTNAME, JOIN_CODE);
+  while (!husarnet.isJoined()) {
+    Serial.println("Waiting for Husarnet network...");
+    delay(1000);
+  }
+  Serial.println("Husarnet network joined");
+  Serial.print("Husarnet IP: ");
+  Serial.println(husarnet.getIpAddress().c_str());
 
   delay(5000);
   Serial.print("start");
@@ -390,41 +378,5 @@ void getCommand(char c) {
     if (c == '?') questionstate = 1;
     if (c == '=') equalstate = 1;
     if ((strState >= 9) && (c == ';')) semicolonstate = 1;
-  }
-}
-
-
-void pan_tilt_Servo(int xVal, int yVal) {
-
-  /* Adjusting pan servo angle */
-  if (xVal < (x_widthMid - 25)) {
-    pan_servo_mid += 200; /* Increasing the pan servo channel PWM */
-    if (pan_servo_mid > 6500)
-      pan_servo_mid = 6500;
-    steering = map(pan_servo_mid, 3250, 6500, 1000, 2000);
-  }
-
-  if (xVal > (x_widthMid + 25)) {
-    pan_servo_mid -= 200; /* Decreasing the pan servo channel PWM */
-
-    if (pan_servo_mid < 3250)
-      pan_servo_mid = 3250;
-
-    steering = map(pan_servo_mid, 3250, 6500, 1000, 2000);
-  }
-
-  /* Adjusting tilt servo angle */
-  if (yVal < (y_heightMid + 25)) {
-    tilt_servo_mid += 200; /* Increasing the tilt servo channel PWM */
-    if (tilt_servo_mid > 6500)
-      tilt_servo_mid = 6500;
-    tracky = map(tiltChannel, 3250, 6500, 1000, 2000);
-  }
-  if (yVal > (y_heightMid - 25)) {
-    tilt_servo_mid -= 200; /* Decreasing the tilt servo channel PWM */
-
-    if (tilt_servo_mid < 3250)
-      tilt_servo_mid = 3250;
-    tracky = map(tiltChannel, 3250, 6500, 1000, 2000);
   }
 }
