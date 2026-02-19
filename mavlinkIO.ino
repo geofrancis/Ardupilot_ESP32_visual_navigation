@@ -92,29 +92,44 @@ void MavLink_receive() {
 
 void MavLink_RC_out() {
   {
+    int i;
+    int system_type = 250;
+    int autopilot_type = MAV_COMP_ID_ALL;
+    mavlink_message_t msg;
+    uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+    mavlink_rc_channels_override_t rcChannels;
 
-
-    if (active = 1) {
-      int i;
-      int system_type = 250;
-      int autopilot_type = MAV_COMP_ID_ALL;
-
-      // Initialize the required buffers
-      mavlink_message_t msg;
-      uint8_t buf[MAVLINK_MAX_PACKET_LEN];
-
-      mavlink_rc_channels_override_t rcChannels;
-
-      rcChannels.chan4_raw = steering;
-
-      rcChannels.target_system = system_type;
-      rcChannels.target_component = autopilot_type;
-
-      mavlink_msg_rc_channels_override_encode(system_type, autopilot_type, &msg, &rcChannels);
-
-      // Copy the message to the send buffer
-      uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
-      Serial.write(buf[i]);
-    }
+    rcChannels.chan4_raw = steering;
+    rcChannels.target_system = system_type;
+    rcChannels.target_component = autopilot_type;
+    mavlink_msg_rc_channels_override_encode(system_type, autopilot_type, &msg, &rcChannels);
+    uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+    Serial.write(buf[i]);
   }
+}
+
+
+
+
+void Guided() {
+
+  //MAVLINK  MESSAGE
+  int sysid = 1;
+  int compid = MAV_COMP_ID_PATHPLANNER;
+  uint32_t time_boot_ms = 0;
+  uint8_t target_system = 1;    /*<System ID of vehicle*/
+  uint8_t target_component = 0; /*< Component ID of flight controller or just 0*/
+  uint8_t type_mask = 163;      /*  Use Yaw Rate + Throttle : 0b10100011 / 0xA3 / 163 (decimal)   Use Attitude + Throttle: 0b00100111 / 0x27 / 39 (decimal)*/
+  float q = (1000);             /*< Attitude quaternion (w, x, y, z order, zero-rotation is {1, 0, 0, 0})Note that zero-rotation causes vehicle to point North. */
+  float body_roll_rate = 0;     /*< Body roll rate not supported*/
+  float body_pitch_rate = 0;    /*< Body pitch rate not supporte*/
+  float thrust = 0.2;           /*< 0=throttle 0%, +1=forward at WP_SPEED, -1=backwards at WP_SPEED*/
+  float thrust_body = (000);
+  mavlink_message_t msg;
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+
+  // Pack the message
+  mavlink_msg_set_attitude_target_pack(sysid, compid, &msg, time_boot_ms, target_system, target_component, type_mask, 0000, body_roll_rate, body_pitch_rate, guidedangle, thrust, 000);
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+  Serial.write(buf, len);
 }
